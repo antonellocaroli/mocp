@@ -331,6 +331,8 @@ static void load_audio_extns (lists_t_strs *list)
 		{"ape", "ape"},
 		{"au", "au"},
 		{"ay", "libgme"},
+    {"dff", "dsf"},
+    {"dsf", "dsf"},
 		{"dts", "dts"},
 		{"eac3", "eac3"},
 		{"fla", "flac"},
@@ -984,7 +986,7 @@ static void *ffmpeg_open (const char *file)
 	 * FFmpeg/LibAV in use.  For some versions this will be caught in
 	 * *_find_stream_info() above and misreported as an unfound codec
 	 * parameters error. */
-	if (data->codec->capabilities & CODEC_CAP_EXPERIMENTAL) {
+	if (data->codec->capabilities & AV_CODEC_CAP_EXPERIMENTAL) {
 		decoder_error (&data->error, ERROR_FATAL, 0,
 				"The codec is experimental and may damage MOC: %s",
 				data->codec->name);
@@ -993,8 +995,8 @@ static void *ffmpeg_open (const char *file)
 #endif
 
 	set_downmixing (data);
-	if (data->codec->capabilities & CODEC_CAP_TRUNCATED)
-		data->enc->flags |= CODEC_FLAG_TRUNCATED;
+  if (data->codec->capabilities & AV_CODEC_CAP_TRUNCATED)
+		data->enc->flags |= AV_CODEC_FLAG_TRUNCATED;
 
 #ifdef HAVE_AVCODEC_OPEN2
 	if (avcodec_open2 (data->enc, data->codec, NULL) < 0)
@@ -1025,7 +1027,7 @@ static void *ffmpeg_open (const char *file)
 
 	data->sample_width = sfmt_Bps (data->fmt);
 
-	if (data->codec->capabilities & CODEC_CAP_DELAY)
+	if (data->codec->capabilities & AV_CODEC_CAP_DELAY)
 		data->delay = true;
 	data->seek_broken = is_seek_broken (data);
 	data->timing_broken = is_timing_broken (data->ic);
