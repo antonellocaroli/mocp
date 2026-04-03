@@ -497,9 +497,8 @@ static int alsa_init (struct output_driver_caps *caps)
 
 	if (mixer_elem_curr)
 		alsa_set_current_mixer ();
-
-	if (!mixer_elem_curr)
-		goto err;
+    else
+        logit ("No ALSA mixer element found for device %s, continuing without hardware mixer", device);
 
 	result = fill_capabilities (caps);
 	if (result == 0)
@@ -786,6 +785,9 @@ static int alsa_read_mixer ()
 {
 	int actual_vol, *vol;
 
+  if (!mixer_handle || !mixer_elem_curr)
+      return -1;
+
 	actual_vol = alsa_read_mixer_raw (mixer_elem_curr);
 
 	assert (RANGE(0, actual_vol, 100));
@@ -809,7 +811,7 @@ static void alsa_set_mixer (int vol)
 
 	assert (RANGE(0, vol, 100));
 
-	if (!mixer_handle)
+	if (!mixer_handle || !mixer_elem_curr)
 		return;
 
 	if (mixer_elem_curr == mixer_elem1)
@@ -886,6 +888,9 @@ static int alsa_get_rate ()
 
 static void alsa_toggle_mixer_channel ()
 {
+  if (!mixer_elem1 && !mixer_elem2)
+      return;
+
 	if (mixer_elem_curr == mixer_elem1 && mixer_elem2)
 		mixer_elem_curr = mixer_elem2;
 	else if (mixer_elem1)
@@ -895,6 +900,9 @@ static void alsa_toggle_mixer_channel ()
 static char *alsa_get_mixer_channel_name ()
 {
 	char *result;
+
+  if (!mixer_elem1 && !mixer_elem2)
+      return xstrdup ("None");
 
 	if (mixer_elem_curr == mixer_elem1)
 		result = xstrdup (options_get_str ("ALSAMixer1"));
