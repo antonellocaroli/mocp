@@ -145,6 +145,15 @@ char *sfmt_str (const long format, char *msg, const size_t buf_size)
 	if (format & SFMT_FLOAT)
 		strncat (msg, ", float",
 				buf_size - strlen(msg) - 1);
+	if (format & SFMT_DSD_U8)
+		strncat (msg, ", DSD-U8",
+				buf_size - strlen(msg) - 1);
+	if (format & SFMT_DSD_U16)
+		strncat (msg, ", DSD-U16",
+				buf_size - strlen(msg) - 1);
+	if (format & SFMT_DSD_U32)
+		strncat (msg, ", DSD-U32",
+				buf_size - strlen(msg) - 1);
 
 	if (format & SFMT_LE)
 		strncat (msg, " little-endian", buf_size - strlen(msg) - 1);
@@ -174,6 +183,12 @@ int sfmt_same_bps (const long fmt1, const long fmt2)
 		return 1;
 	if (fmt1 & fmt2 & SFMT_FLOAT)
 		return 1;
+	if (fmt1 & (SFMT_DSD_U8) && fmt2 & (SFMT_DSD_U8))
+		return 1;
+	if (fmt1 & (SFMT_DSD_U16) && fmt2 & (SFMT_DSD_U16))
+		return 1;
+	if (fmt1 & (SFMT_DSD_U32) && fmt2 & (SFMT_DSD_U32))
+		return 1;
 
 	return 0;
 }
@@ -185,6 +200,7 @@ static long sfmt_best_matching (const long formats_with_endian,
 {
 	long formats = formats_with_endian & SFMT_MASK_FORMAT;
 	long req = req_with_endian & SFMT_MASK_FORMAT;
+	long req_end = req_with_endian & SFMT_MASK_ENDIANNESS;
 	long best = 0;
 
 	char fmt_name1[SFMT_STR_MAX] DEBUG_ONLY;
@@ -192,6 +208,34 @@ static long sfmt_best_matching (const long formats_with_endian,
 
 	if (formats & req)
 		best = req;
+	/* Native DSD: match must consider endianness because DSD_U32_LE and
+	 * DSD_U32_BE are distinct ALSA formats.  caps->formats contains both
+	 * the format bits AND the endianness bits for each DSD variant the
+	 * driver supports (e.g. SFMT_DSD_U32|SFMT_LE if the driver only
+	 * exposes DSD_U32_LE).  We must not strip endianness when matching. */
+	else if (req & SFMT_MASK_DSD) {
+		long req_full = req_with_endian & (SFMT_MASK_FORMAT | SFMT_MASK_ENDIANNESS);
+
+		/* 1. Exact match: requested format + endianness both supported */
+		if ((formats_with_endian & req_full) == req_full)
+			best = req_full;
+		/* 2. Same width, opposite endianness: use LE and byte-swap in
+		 *    the decoder (snd-usb-audio always exposes LE) */
+		else if ((req & (SFMT_DSD_U32 | SFMT_DSD_U16)) &&
+		         (formats_with_endian & (req | SFMT_LE)) == (req | SFMT_LE))
+			best = req | SFMT_LE;   /* decoder will swap bytes */
+		/* 3. Fall back to DSD_U32_LE — most common kernel DSD format */
+		else if (formats_with_endian & (SFMT_DSD_U32 | SFMT_LE))
+			best = SFMT_DSD_U32 | SFMT_LE;
+		/* 4. DSD_U16_LE */
+		else if (formats_with_endian & (SFMT_DSD_U16 | SFMT_LE))
+			best = SFMT_DSD_U16 | SFMT_LE;
+		/* 5. DSD_U8 (no endianness) */
+		else if (formats & SFMT_DSD_U8)
+			best = SFMT_DSD_U8;
+		else
+			best = req_full; /* driver will reject; fail cleanly */
+	}
 	else if (req == SFMT_S8 || req == SFMT_U8) {
 		if (formats & SFMT_S8)
 			best = SFMT_S8;
@@ -243,7 +287,21 @@ static long sfmt_best_matching (const long formats_with_endian,
 
 	assert (best != 0);
 
-	if (!(best & (SFMT_S8 | SFMT_U8))) {
+	/* Endianness assignment:
+	 *  - DSD_U8: no endianness bit (single-byte container, meaningless)
+	 *  - DSD_U16/U32: take endianness from the requested format, because
+	 *    each LE/BE variant is a distinct ALSA format enum.  The generic
+	 *    PCM endianness logic must never touch DSD formats.
+	 *  - PCM 8-bit: no endianness
+	 *  - PCM 16/32/float: use driver caps endianness as before */
+	if (best & (SFMT_DSD_U16 | SFMT_DSD_U32)) {
+		/* Restore the endianness from the request.  If the plugin
+		 * did not specify one (shouldn't happen) default to LE. */
+		if (req_end)
+			best |= req_end;
+		else
+			best |= SFMT_LE;
+	} else if (!(best & SFMT_MASK_DSD) && !(best & (SFMT_S8 | SFMT_U8))) {
 		if ((formats_with_endian & SFMT_LE)
 				&& (formats_with_endian & SFMT_BE))
 			best |= SFMT_NE;
@@ -278,6 +336,15 @@ int sfmt_Bps (const long format)
 			break;
 		case SFMT_FLOAT:
 			Bps = sizeof (float);
+			break;
+		case SFMT_DSD_U8:
+			Bps = 1;
+			break;
+		case SFMT_DSD_U16:
+			Bps = 2;
+			break;
+		case SFMT_DSD_U32:
+			Bps = 4;
 			break;
 	}
 
@@ -729,6 +796,17 @@ int audio_open (struct sound_params *sound_params)
 				|| (!sample_rate_compat(
 						req_sound_params.rate,
 						driver_sound_params.rate))) {
+			/* Native DSD must never enter the PCM conversion path.
+			 * If the driver rejected the DSD format, fail cleanly. */
+			if (req_sound_params.fmt & SFMT_MASK_DSD) {
+				char fmt_name2[SFMT_STR_MAX];
+				error ("DSD native playback: driver does not support %s",
+				       sfmt_str (req_sound_params.fmt, fmt_name2,
+				                 sizeof (fmt_name2)));
+				hw.close ();
+				reset_sound_params (&req_sound_params);
+				return 0;
+			}
 			logit ("Conversion of the sound is needed.");
 			if (!audio_conv_new (&sound_conv, &req_sound_params,
 					&driver_sound_params)) {

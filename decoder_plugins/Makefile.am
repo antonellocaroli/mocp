@@ -44,6 +44,10 @@ if BUILD_sidplay2
     SUBDIRS += sidplay2
 endif
 
+if BUILD_dsd
+    SUBDIRS += dsd
+endif
+
 if BUILD_ffmpeg
     SUBDIRS += ffmpeg
 endif

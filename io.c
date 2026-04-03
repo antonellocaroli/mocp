@@ -610,6 +610,11 @@ static ssize_t io_peek_internal (struct io_stream *s, void *buf, size_t count)
 	return io_ok(s) ? received : -1;
 }
 
+size_t io_get_buf_fill (const struct io_stream *s)
+{
+	return s->buf ? fifo_buf_get_fill (s->buf) : 0;
+}
+
 /* Wait until there are s->prebuffer bytes in the buffer or some event
  * occurs which prevents prebuffering. */
 void io_prebuffer (struct io_stream *s, const size_t to_fill)

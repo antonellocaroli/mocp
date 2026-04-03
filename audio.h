@@ -14,13 +14,20 @@ extern "C" {
  */
 enum sfmt_fmt
 {
-	SFMT_S8 =    0x00000001, /*!< signed 8-bit */
-	SFMT_U8	=    0x00000002, /*!< unsigned 8-bit */
-	SFMT_S16 =   0x00000004, /*!< signed 16-bit */
-	SFMT_U16 =   0x00000008, /*!< unsigned 16-bit */
-	SFMT_S32 =   0x00000010, /*!< signed 24-bit (LSB is 0) */
-	SFMT_U32 =   0x00000020, /*!< unsigned 24-bit (LSB set to 0) */
-	SFMT_FLOAT = 0x00000040  /*!< float in range -1.0 to 1.0 */
+	SFMT_S8 =        0x00000001, /*!< signed 8-bit */
+	SFMT_U8	=        0x00000002, /*!< unsigned 8-bit */
+	SFMT_S16 =       0x00000004, /*!< signed 16-bit */
+	SFMT_U16 =       0x00000008, /*!< unsigned 16-bit */
+	SFMT_S32 =       0x00000010, /*!< signed 24-bit (LSB is 0) */
+	SFMT_U32 =       0x00000020, /*!< unsigned 24-bit (LSB set to 0) */
+	SFMT_FLOAT =     0x00000040, /*!< float in range -1.0 to 1.0 */
+
+	/** Native DSD formats – raw DSD bits, no PCM conversion.
+	 *  Endianness bits (SFMT_LE / SFMT_BE) still apply to the
+	 *  16- and 32-bit container widths. */
+	SFMT_DSD_U8 =    0x00000080, /*!< DSD packed as unsigned 8-bit bytes (MSB = oldest bit) */
+	SFMT_DSD_U16 =   0x00000100, /*!< DSD packed in unsigned 16-bit words */
+	SFMT_DSD_U32 =   0x00000200  /*!< DSD packed in unsigned 32-bit words */
 };
 
 /** Sample endianness.
@@ -45,13 +52,14 @@ enum sfmt_endianness
  * Masks used to extract only one type of information from the sound format.
  */
 /*@{*/
-#define SFMT_MASK_FORMAT     0x00000fff /*!< sample format */
+#define SFMT_MASK_FORMAT     0x000003ff /*!< sample format (PCM + DSD bits) */
+#define SFMT_MASK_DSD        (SFMT_DSD_U8 | SFMT_DSD_U16 | SFMT_DSD_U32) /*!< all native DSD formats */
 #define SFMT_MASK_ENDIANNESS 0x00003000 /*!< sample endianness */
 /*@}*/
 
 /** Return a value other than 0 if the sound format seems to be proper. */
 #define sound_format_ok(f) (((f) & SFMT_MASK_FORMAT) \
-		&& (((f) & (SFMT_S8 | SFMT_U8 | SFMT_FLOAT)) \
+		&& (((f) & (SFMT_S8 | SFMT_U8 | SFMT_FLOAT | SFMT_MASK_DSD)) \
 			|| (f) & SFMT_MASK_ENDIANNESS))
 
 /** Change the sample format to new_fmt (without endianness). */

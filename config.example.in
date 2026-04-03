@@ -711,3 +711,48 @@
 # players usually behave.  (Note that this option previously took the
 # values 1 and 0; these are now deprecated in favour of 'yes' and 'no'.)
 #QueueNextSongReturn = yes
+
+# DSD playback mode
+#
+# Controls how DSD audio files (.dsf, .dff) are played back.
+# Possible values:
+#
+#   native  — Raw DSD bytes passed directly to the ALSA driver.
+#             Requires a kernel/driver that exposes SND_PCM_FORMAT_DSD_U8
+#             (or U16/U32 variants), typically a USB DAC with native DSD
+#             support.  This is true bit-perfect DSD playback.
+#             (default)
+#
+#   dop     — DSD-over-PCM (DoP, IEC 62236-3).  DSD data is packed into
+#             standard 24-bit PCM frames with marker bytes (0x05/0xFA)
+#             that a DoP-capable DAC will detect and decode as DSD.
+#             Works with any 24-bit-capable PCM device; non-DoP DACs will
+#             output noise or silence (the DoP packet is PCM-valid but
+#             meaningless as audio).
+#
+#   pcm     — Software conversion: DSD is decimated to float PCM using a
+#             FIR low-pass filter at DSD_rate/8.  Works on any device but
+#             is not bit-perfect.
+#
+#DSDPlaybackMode = native
+
+# DSD native format
+#
+# When DSDPlaybackMode is set to "native", this option selects the exact
+# ALSA DSD sample format to negotiate with the driver.  Choose the one
+# your DAC actually supports (check with "aplay -D hw:X --dump-hw-params"
+# or your DAC's documentation).
+#
+# Possible values:
+#
+#   u8     — SND_PCM_FORMAT_DSD_U8     (1 byte/frame/ch, no endianness)
+#             Oldest and most widely supported format.  (default)
+#
+#   u16le  — SND_PCM_FORMAT_DSD_U16_LE (2 bytes/frame/ch, little-endian)
+#   u16be  — SND_PCM_FORMAT_DSD_U16_BE (2 bytes/frame/ch, big-endian)
+#
+#   u32le  — SND_PCM_FORMAT_DSD_U32_LE (4 bytes/frame/ch, little-endian)
+#             Common on high-end USB DACs (e.g. XMOS-based).
+#   u32be  — SND_PCM_FORMAT_DSD_U32_BE (4 bytes/frame/ch, big-endian)
+#
+#DSDNativeFormat = u8

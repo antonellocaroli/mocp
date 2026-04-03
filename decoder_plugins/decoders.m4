@@ -15,6 +15,7 @@ else
 fi
 
 m4_include(decoder_plugins/aac/aac.m4)
+m4_include(decoder_plugins/dsd/dsd.m4)
 m4_include(decoder_plugins/ffmpeg/ffmpeg.m4)
 m4_include(decoder_plugins/flac/flac.m4)
 m4_include(decoder_plugins/modplug/modplug.m4)

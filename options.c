@@ -750,6 +750,10 @@ void options_init ()
 	add_str  ("OnStop", NULL, CHECK_NONE);
 
 	add_bool ("QueueNextSongReturn", false);
+
+	/* DSD decoder options */
+	add_str  ("DSDPlaybackMode", "native", CHECK_NONE);
+	add_str  ("DSDNativeFormat", "u8", CHECK_NONE);
 }
 
 /* Return 1 if a parameter to an integer option is valid. */

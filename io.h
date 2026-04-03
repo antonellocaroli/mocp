@@ -127,3 +127,4 @@ int io_seekable (const struct io_stream *s);
 #endif
 
 #endif
+size_t io_get_buf_fill (const struct io_stream *s);

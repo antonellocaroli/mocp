@@ -97,12 +97,53 @@ static const struct {
 	snd_pcm_format_t mask;
 	long format;
 } format_masks[] = {
-	{SND_PCM_FORMAT_S8, SFMT_S8},
-	{SND_PCM_FORMAT_U8, SFMT_U8},
-	{SND_PCM_FORMAT_S16, SFMT_S16},
-	{SND_PCM_FORMAT_U16, SFMT_U16},
-	{SND_PCM_FORMAT_S32, SFMT_S32},
-	{SND_PCM_FORMAT_U32, SFMT_U32}
+	{SND_PCM_FORMAT_S8,    SFMT_S8},
+	{SND_PCM_FORMAT_U8,    SFMT_U8},
+	{SND_PCM_FORMAT_S16,   SFMT_S16},
+	{SND_PCM_FORMAT_U16,   SFMT_U16},
+	{SND_PCM_FORMAT_S32,   SFMT_S32},
+	{SND_PCM_FORMAT_U32,   SFMT_U32},
+	/* DSD formats: defined in kernel headers as SNDRV_PCM_FORMAT_DSD_U*
+	 * (values 48-52).  alsa-lib may or may not expose these as
+	 * SND_PCM_FORMAT_DSD_U* symbols depending on version, so we use the
+	 * numeric values directly from <sound/asound.h> as a guaranteed
+	 * fallback.  The #ifdef variants are preferred when available so
+	 * that compiler type-checking is preserved. */
+#if defined(SND_PCM_FORMAT_DSD_U8)
+	{SND_PCM_FORMAT_DSD_U8,     SFMT_DSD_U8},
+#elif defined(SNDRV_PCM_FORMAT_DSD_U8)
+	{SNDRV_PCM_FORMAT_DSD_U8,   SFMT_DSD_U8},
+#else
+	{(snd_pcm_format_t)48,      SFMT_DSD_U8},
+#endif
+#if defined(SND_PCM_FORMAT_DSD_U16_LE)
+	{SND_PCM_FORMAT_DSD_U16_LE, SFMT_DSD_U16 | SFMT_LE},
+#elif defined(SNDRV_PCM_FORMAT_DSD_U16_LE)
+	{SNDRV_PCM_FORMAT_DSD_U16_LE, SFMT_DSD_U16 | SFMT_LE},
+#else
+	{(snd_pcm_format_t)49,      SFMT_DSD_U16 | SFMT_LE},
+#endif
+#if defined(SND_PCM_FORMAT_DSD_U32_LE)
+	{SND_PCM_FORMAT_DSD_U32_LE, SFMT_DSD_U32 | SFMT_LE},
+#elif defined(SNDRV_PCM_FORMAT_DSD_U32_LE)
+	{SNDRV_PCM_FORMAT_DSD_U32_LE, SFMT_DSD_U32 | SFMT_LE},
+#else
+	{(snd_pcm_format_t)50,      SFMT_DSD_U32 | SFMT_LE},
+#endif
+#if defined(SND_PCM_FORMAT_DSD_U16_BE)
+	{SND_PCM_FORMAT_DSD_U16_BE, SFMT_DSD_U16 | SFMT_BE},
+#elif defined(SNDRV_PCM_FORMAT_DSD_U16_BE)
+	{SNDRV_PCM_FORMAT_DSD_U16_BE, SFMT_DSD_U16 | SFMT_BE},
+#else
+	{(snd_pcm_format_t)51,      SFMT_DSD_U16 | SFMT_BE},
+#endif
+#if defined(SND_PCM_FORMAT_DSD_U32_BE)
+	{SND_PCM_FORMAT_DSD_U32_BE, SFMT_DSD_U32 | SFMT_BE},
+#elif defined(SNDRV_PCM_FORMAT_DSD_U32_BE)
+	{SNDRV_PCM_FORMAT_DSD_U32_BE, SFMT_DSD_U32 | SFMT_BE},
+#else
+	{(snd_pcm_format_t)52,      SFMT_DSD_U32 | SFMT_BE},
+#endif
 };
 
 /* Given an ALSA mask, return a MOC format or zero if unknown. */
@@ -123,17 +164,38 @@ static inline long mask_to_format (const snd_pcm_format_mask_t *mask)
 	return result;
 }
 
-/* Given a MOC format, return an ALSA mask.
- * Return SND_PCM_FORMAT_UNKNOWN if unknown. */
+/* Given a MOC format (with optional endianness bits), return an ALSA mask.
+ * For DSD multi-byte formats the endianness is encoded in the ALSA enum
+ * value itself, so we must match on format+endian together.
+ * Returns SND_PCM_FORMAT_UNKNOWN if unknown. */
 static inline snd_pcm_format_t format_to_mask (long format)
 {
 	snd_pcm_format_t result = SND_PCM_FORMAT_UNKNOWN;
+	long req_fmt = format & SFMT_MASK_FORMAT;
+	long req_end = format & SFMT_MASK_ENDIANNESS;
+
+	/* SFMT_NE is an alias for SFMT_LE or SFMT_BE depending on the host.
+	 * For DSD formats the endianness is always concrete (the DAC has a
+	 * fixed wire format), so expand NE to its concrete value now so the
+	 * table lookup below works correctly. */
+	if (req_end == SFMT_NE)
+		req_end = (SFMT_NE == SFMT_LE) ? SFMT_LE : SFMT_BE;
 
 	for (size_t ix = 0; ix < ARRAY_SIZE(format_masks); ix += 1) {
-		if (format_masks[ix].format == format) {
-			result = format_masks[ix].mask;
-			break;
-		}
+		long entry_fmt = format_masks[ix].format & SFMT_MASK_FORMAT;
+		long entry_end = format_masks[ix].format & SFMT_MASK_ENDIANNESS;
+
+		if (entry_fmt != req_fmt)
+			continue;
+
+		/* When the table entry carries an explicit endianness (DSD
+		 * multi-byte, some PCM variants) require an exact match.
+		 * When neither side specifies endianness, accept any entry. */
+		if (entry_end && req_end && entry_end != req_end)
+			continue;
+
+		result = format_masks[ix].mask;
+		break;
 	}
 
 	return result;
@@ -235,7 +297,16 @@ static int fill_capabilities (struct output_driver_caps *caps)
 			break;
 		}
 		snd_pcm_hw_params_get_format_mask (hw_params, format_mask);
-		caps->formats = mask_to_format (format_mask) | SFMT_NE;
+		{
+			long all_fmts = mask_to_format (format_mask);
+			/* SFMT_NE signals to sfmt_best_matching that the driver
+			 * accepts native-endian PCM samples.  It must NOT be
+			 * OR'd into DSD format bits — DSD endianness is fixed by
+			 * the wire protocol, not the host byte order. */
+			long dsd_fmts = all_fmts & SFMT_MASK_DSD;
+			long pcm_fmts = all_fmts & ~SFMT_MASK_DSD;
+			caps->formats = dsd_fmts | pcm_fmts | (pcm_fmts ? SFMT_NE : 0);
+		}
 		snd_pcm_format_mask_free (format_mask);
 
 		result = 1;
@@ -533,7 +604,9 @@ static int alsa_open (struct sound_params *sound_params)
 
 	assert (!handle);
 
-	params.format = format_to_mask (sound_params->fmt & SFMT_MASK_FORMAT);
+	/* Pass the full format word (format + endianness) so that DSD
+	 * multi-byte variants resolve to the correct ALSA enum. */
+	params.format = format_to_mask (sound_params->fmt);
 	if (params.format == SND_PCM_FORMAT_UNKNOWN) {
 		error ("Unknown sample format: %s",
 		        sfmt_str (sound_params->fmt, fmt_name, sizeof (fmt_name)));

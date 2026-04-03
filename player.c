@@ -33,6 +33,7 @@
 #include "files.h"
 #include "playlist.h"
 #include "md5.h"
+#include "io.h"
 
 #define PCM_BUF_SIZE		(36 * 1024)
 #define PREBUFFER_THRESHOLD	(18 * 1024)
@@ -467,6 +468,21 @@ static void decode_loop (const struct decoder *f, void *decoder_data,
 
 	status_msg ("Playing...");
 
+	/* For network streams, prebuffer once before starting the decode loop.
+	 * Calling io_prebuffer() inside the loop caused it to re-trigger on
+	 * every iteration (out_buf never reaches PREBUFFER_THRESHOLD while
+	 * the audio device is consuming it), effectively blocking playback. */
+	if (decoder_stream) {
+		size_t prebuf_size = (size_t)options_get_int("Prebuffering") * 1024;
+		if (prebuf_size > 0 &&
+		    io_get_buf_fill(decoder_stream) < prebuf_size) {
+			prebuffering = 1;
+			io_prebuffer(decoder_stream, prebuf_size);
+			prebuffering = 0;
+			status_msg("Playing...");
+		}
+	}
+
 	while (1) {
 		debug ("loop...");
 
@@ -478,11 +494,9 @@ static void decode_loop (const struct decoder *f, void *decoder_data,
 
 			if (decoder_stream && out_buf_get_fill(out_buf)
 					< PREBUFFER_THRESHOLD) {
-				prebuffering = 1;
-				io_prebuffer (decoder_stream,
-						options_get_int("Prebuffering")
-						* 1024);
-				prebuffering = 0;
+				/* Buffer is draining — let the io thread
+				 * refill it in the background; do not block
+				 * here or we stall the decode loop. */
 				status_msg ("Playing...");
 			}
 

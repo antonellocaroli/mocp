@@ -257,8 +257,8 @@ static char *read_ini_value (FILE *file, const char *section, const char *key)
 				break;
 			}
 
-			if (!strncasecmp(line, key,
-						MAX(t2 - line + 1, key_len))) {
+			if ((t2 - line + 1) == key_len &&
+					!strncasecmp(line, key, key_len)) {
 				value = t + 1;
 
 				while (isblank(value[0]))
@@ -304,17 +304,43 @@ static int plist_load_pls (struct plist *plist, const char *fname,
 
 	line = read_ini_value (file, "playlist", "NumberOfEntries");
 	if (!line) {
+		/* PLS v2 files sometimes omit NumberOfEntries but include
+		 * Version=2.  If Version is present, scan for FileN entries
+		 * directly instead of falling back to M3U parsing. */
+		char *ver = read_ini_value (file, "playlist", "Version");
+		if (!ver) {
+			/* No Version either — try M3U fallback */
+			fclose (file);
+			return plist_load_m3u (plist, fname, cwd, 0);
+		}
+		free (ver);
 
-		/* Assume that it is a pls file version 1 - plist_load_m3u()
-		 * should handle it like an m3u file without the m3u extensions. */
-		fclose (file);
-		return plist_load_m3u (plist, fname, cwd, 0);
+		/* Count FileN entries by probing sequentially */
+		nitems = 0;
+		for (i = 1; i <= 65535; i++) {
+			char key[32];
+			char *probe;
+			sprintf (key, "File%ld", i);
+			probe = read_ini_value (file, "playlist", key);
+			if (!probe)
+				break;
+			free (probe);
+			nitems = i;
+		}
+		if (nitems == 0) {
+			fclose (file);
+			return 0;
+		}
 	}
-
-	nitems = strtol (line, &e, 10);
-	if (*e) {
-		error ("Broken PLS file");
-		goto err;
+	else {
+		nitems = strtol (line, &e, 10);
+		free (line);
+		line = NULL;
+		if (*e) {
+			error ("Broken PLS file");
+			fclose (file);
+			return 0;
+		}
 	}
 
 	for (i = 1; i <= nitems; i++) {
@@ -325,8 +351,8 @@ static int plist_load_pls (struct plist *plist, const char *fname,
 		sprintf (key, "File%ld", i);
 		pls_file = read_ini_value (file, "playlist", key);
 		if (!pls_file) {
-			error ("Broken PLS file");
-			goto err;
+			/* Gap in numbering — skip silently */
+			continue;
 		}
 
 		sprintf (key, "Title%ld", i);
@@ -367,8 +393,6 @@ static int plist_load_pls (struct plist *plist, const char *fname,
 		added += 1;
 	}
 
-err:
-	free (line);
 	fclose (file);
 	return added;
 }
