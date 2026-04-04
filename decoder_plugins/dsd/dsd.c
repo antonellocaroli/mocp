@@ -54,8 +54,8 @@
 #define DSD_MAX_CHANNELS   6
 #define DOP_MARKER_EVEN    0x05u
 #define DOP_MARKER_ODD     0xFAu
-#define FIR_LEN            63
-#define DSD_READ_BYTES     4096
+#define FIR_LEN            127  /* 127-tap sinc-Blackman, fc=0.05 (~17640 Hz @ 352800 Hz rate) */
+#define DSD_READ_BYTES     65536  /* large enough for ratio=256: 65536/256=256 samples/call */
 
 /* =========================================================================
  * File format tag
@@ -75,19 +75,28 @@ typedef enum {
  * FIR low-pass coefficients (sinc * Blackman window, fc=0.1)
  * ====================================================================== */
 static const float dsd_fir[FIR_LEN] = {
-	-0.000176f, -0.000325f, -0.000390f, -0.000289f,  0.000000f,
-	 0.000450f,  0.000943f,  0.001289f,  0.001284f,  0.000746f,
-	-0.000374f, -0.001830f, -0.003346f, -0.004434f, -0.004582f,
-	-0.003377f, -0.000604f,  0.003530f,  0.008462f,  0.013332f,
-	 0.016994f,  0.018244f,  0.016094f,  0.010062f,  0.000652f,
-	-0.011406f, -0.024228f, -0.035929f, -0.044100f, -0.046622f,
-	-0.041969f, -0.029276f, -0.009052f,  0.017050f,  0.047073f,
-	 0.078168f,  0.107456f,  0.131906f,  0.148660f,  0.155726f,
-	 0.152438f,  0.139160f,  0.116835f,  0.087128f,  0.052611f,
-	 0.015811f, -0.020309f, -0.052408f, -0.078004f, -0.095189f,
-	-0.103017f, -0.101537f, -0.091404f, -0.073693f, -0.050498f,
-	-0.024141f,  0.002419f,  0.026742f,  0.046657f,  0.060357f,
-	 0.066834f,  0.065726f,  0.057380f
+	-0.00000000f, 0.00000068f, 0.00000145f, -0.00000000f, -0.00000605f, -0.00001845f,
+	-0.00003755f, -0.00006182f, -0.00008750f, -0.00010872f, -0.00011802f, -0.00010740f,
+	-0.00006963f, 0.00000000f, 0.00010211f, 0.00023172f, 0.00037741f, 0.00052124f,
+	0.00063977f, 0.00070619f, 0.00069359f, 0.00057906f, 0.00034831f, -0.00000000f,
+	-0.00045063f, -0.00096980f, -0.00150542f, -0.00198996f, -0.00234620f, -0.00249555f,
+	-0.00236840f, -0.00191545f, -0.00111859f, 0.00000000f, 0.00137237f, 0.00288406f,
+	0.00437917f, 0.00567172f, 0.00656263f, 0.00686163f, 0.00641174f, 0.00511418f,
+	0.00295064f, -0.00000000f, -0.00355315f, -0.00742032f, -0.01122220f, -0.01451324f,
+	-0.01681601f, -0.01766311f, -0.01664282f, -0.01344410f, -0.00789647f, 0.00000000f,
+	0.01005800f, 0.02190252f, 0.03498742f, 0.04862874f, 0.06205209f, 0.07445049f,
+	0.08504754f, 0.09316004f, 0.09825441f, 0.09999134f, 0.09825441f, 0.09316004f,
+	0.08504754f, 0.07445049f, 0.06205209f, 0.04862874f, 0.03498742f, 0.02190252f,
+	0.01005800f, 0.00000000f, -0.00789647f, -0.01344410f, -0.01664282f, -0.01766311f,
+	-0.01681601f, -0.01451324f, -0.01122220f, -0.00742032f, -0.00355315f, -0.00000000f,
+	0.00295064f, 0.00511418f, 0.00641174f, 0.00686163f, 0.00656263f, 0.00567172f,
+	0.00437917f, 0.00288406f, 0.00137237f, 0.00000000f, -0.00111859f, -0.00191545f,
+	-0.00236840f, -0.00249555f, -0.00234620f, -0.00198996f, -0.00150542f, -0.00096980f,
+	-0.00045063f, -0.00000000f, 0.00034831f, 0.00057906f, 0.00069359f, 0.00070619f,
+	0.00063977f, 0.00052124f, 0.00037741f, 0.00023172f, 0.00010211f, 0.00000000f,
+	-0.00006963f, -0.00010740f, -0.00011802f, -0.00010872f, -0.00008750f, -0.00006182f,
+	-0.00003755f, -0.00001845f, -0.00000605f, -0.00000000f, 0.00000145f, 0.00000068f,
+	-0.00000000f
 };
 
 /* =========================================================================
@@ -130,16 +139,13 @@ struct dsd_data {
 
 	/* Format we advertise to MOC/ALSA (always a format ALSA can open) */
 	long         native_fmt;
-	/* Bytes per channel per native frame (1, 2, or 4) */
 	int          native_Bpc;
-	/* Whether decode_native must byte-swap words before output.
-	 * True when user asked for u32be/u16be but the kernel driver only
-	 * accepts the LE variant (snd-usb-audio always exposes DSD_U32_LE). */
 	int          native_swap;
 
 	/* FIR state (PCM mode) */
 	float        fir_buf[DSD_MAX_CHANNELS][FIR_LEN];
 	int          fir_pos;
+	int          pcm_decimate; /* decimation ratio: 8 for DSD64, 16 for DSD128, 32 for DSD256 */
 
 	/* DoP state */
 	int          dop_phase;
@@ -317,15 +323,28 @@ static int dsd_read(struct dsd_data *d,
 		uint64_t bytes_per_ch = d->bytes_decoded / d->channels;
 		int blk = (int)d->dsf_block_size;
 		for (ch = 0; ch < d->channels; ch++) {
-			long pos = d->data_offset
-			           + (long)((bytes_per_ch / blk)
-			                    * ((uint64_t)blk * d->channels))
-			           + (long)(ch * blk)
-			           + (long)(bytes_per_ch % blk);
-			fseek(d->f, pos, SEEK_SET);
-			int r = (int)fread(buf[ch], 1, req, d->f);
-			if (r <= 0) return 0;
-			if (r < req) memset(buf[ch] + r, 0, req - r);
+			int filled = 0;
+			uint64_t bpc = bytes_per_ch;
+			while (filled < req) {
+				int offset_in_block = (int)(bpc % blk);
+				int avail = blk - offset_in_block;
+				int want  = req - filled;
+				if (want > avail) want = avail;
+				long pos = d->data_offset
+				           + (long)((bpc / blk) * ((uint64_t)blk * d->channels))
+				           + (long)(ch * blk)
+				           + offset_in_block;
+				fseek(d->f, pos, SEEK_SET);
+				int r = (int)fread(buf[ch] + filled, 1, want, d->f);
+				if (r <= 0) {
+					if (filled == 0) return 0;
+					memset(buf[ch] + filled, 0, req - filled);
+					filled = req;
+					break;
+				}
+				filled += r;
+				bpc    += r;
+			}
 		}
 		return req;
 	} else {
@@ -382,38 +401,21 @@ static int decode_native(struct dsd_data *d, char *out, int out_len)
 
 	for (int i = 0; i < frames_got; i++) {
 		for (int ch = 0; ch < d->channels; ch++) {
-			/* Collect Bpc DSD source bytes, normalise to MSB-first */
 			uint8_t b[4];
-			for (int k = 0; k < Bpc; k++) {
-				uint8_t src = raw[ch][i * Bpc + k];
-				b[k] = d->lsb_first ? bit_rev[src] : src;
-			}
-			/* b[0..Bpc-1] now contains DSD bytes in MSB-first order.
-			 * Pack into output word in the requested endianness. */
-			if (Bpc == 1) {
-				*p++ = b[0];
-			} else if (Bpc == 2) {
-				/* native_swap: user wants BE but driver is LE
-				 * (or vice-versa) — swap the two bytes */
-				if (d->native_swap) {
-					*p++ = b[1]; *p++ = b[0];
-				} else if (want_be) {
-					*p++ = b[0]; *p++ = b[1];
-				} else {
-					*p++ = b[1]; *p++ = b[0];
-				}
-			} else { /* Bpc == 4 */
-				if (d->native_swap) {
-					/* Swap all 4 bytes */
-					*p++ = b[3]; *p++ = b[2];
-					*p++ = b[1]; *p++ = b[0];
-				} else if (want_be) {
-					*p++ = b[0]; *p++ = b[1];
-					*p++ = b[2]; *p++ = b[3];
-				} else {
-					*p++ = b[3]; *p++ = b[2];
-					*p++ = b[1]; *p++ = b[0];
-				}
+			for (int k = 0; k < Bpc; k++)
+				b[k] = bit_rev[raw[ch][i * Bpc + k]];
+
+			if (want_be) {
+				/* DSD_U32_BE / DSD_U16_BE: bit-reversed bytes in
+				 * chronological order (oldest first = MSB).
+				 * Matches squeezelite DSD_U32_BE output for LSB-first DSF. */
+				for (int k = 0; k < Bpc; k++)
+					*p++ = b[k];
+			} else {
+				/* DSD_U32_LE / DSD_U16_LE: bit-reversed bytes in
+				 * reverse chronological order (newest byte at LSB). */
+				for (int k = Bpc - 1; k >= 0; k--)
+					*p++ = b[k];
 			}
 		}
 	}
@@ -425,8 +427,12 @@ static int decode_native(struct dsd_data *d, char *out, int out_len)
 /* =========================================================================
  * MODE: DoP  (DSD-over-PCM, IEC 62236-3)
  *
- * Output: SFMT_S32 | SFMT_LE, interleaved by channel.
- * Each 32-bit word:  [0x00][marker][DSD_hi][DSD_lo]  (LE in memory: lo,hi,marker,0x00)
+ * Packing (matches ffmpeg/mpv reference implementation):
+ *   Logical S32BE word: [marker][dsd_byte0][dsd_byte1][0x00]
+ *   In S32LE memory:    [0x00][dsd_byte1][dsd_byte0][marker]
+ *
+ * DSF files are LSB-first: each byte is bit-reversed before packing.
+ * DSDIFF files are MSB-first: no bit-reversal needed.
  * ====================================================================== */
 static int decode_dop(struct dsd_data *d, char *out, int out_len)
 {
@@ -455,14 +461,20 @@ static int decode_dop(struct dsd_data *d, char *out, int out_len)
 		d->dop_phase ^= 1;
 
 		for (int ch = 0; ch < d->channels; ch++) {
-			uint8_t hi = raw[ch][i];
-			uint8_t lo = raw[ch][i + 1];
-			if (d->lsb_first) { hi = bit_rev[hi]; lo = bit_rev[lo]; }
-			/* S32_LE word in memory: [lo][hi][marker][0x00] */
-			*p++ = lo;
-			*p++ = hi;
-			*p++ = marker;
+			uint8_t b0 = raw[ch][i];       /* first DSD byte from file  */
+			uint8_t b1 = raw[ch][i + 1];   /* second DSD byte from file */
+
+			/* DSF is LSB-first: bit-reverse to get MSB-first DSD bytes.
+			 * DSDIFF is already MSB-first. */
+			if (d->lsb_first) { b0 = bit_rev[b0]; b1 = bit_rev[b1]; }
+
+			/* S32LE memory layout: [0x00][b1][b0][marker]
+			 * = logical S32BE:     [marker][b0][b1][0x00]
+			 * This matches the ffmpeg/mpv DoP reference implementation. */
 			*p++ = 0x00u;
+			*p++ = b1;
+			*p++ = b0;
+			*p++ = marker;
 		}
 		frames_out++;
 	}
@@ -473,43 +485,76 @@ static int decode_dop(struct dsd_data *d, char *out, int out_len)
 
 /* =========================================================================
  * MODE: PCM  (software FIR decimation)  → SFMT_FLOAT
+ *
+ * The FIR filter operates at the DSD byte level:
+ *   - Each DSD byte is converted to a "pulse density" value in [-1, +1]
+ *     by counting set bits: density = (popcount(byte) * 2 - 8) / 8.0
+ *   - The delay line stores one float per DSD byte (not per bit).
+ *   - One output PCM sample is produced per input DSD byte per channel.
+ *   - Output rate = dsd_rate / 8 (e.g. DSD64 → 352800 Hz).
+ *
+ * The decimation ratio (d->pcm_decimate) is chosen so the output rate
+ * stays at or below 352800 Hz regardless of DSD rate:
+ *   DSD64  (2822400): ratio=8  → 352800 Hz
+ *   DSD128 (5644800): ratio=16 → 352800 Hz
+ *   DSD256 (11289600):ratio=32 → 352800 Hz
+ * ====================================================================== */
+/* =========================================================================
+ * MODE: PCM  (software DSD→float via FIR low-pass)
+ *
+ * One output float per DSD byte per channel (rate = dsd_rate/8).
+ * Each DSD byte is converted to a pulse-density value [-1,+1] via a
+ * popcount LUT, fed into a 63-tap FIR low-pass filter (fc = 0.1 * byte_rate),
+ * and the filtered value is the output PCM sample.
+ *
+ * This is the same approach as MPD's software DSD decoder.
  * ====================================================================== */
 static int decode_pcm(struct dsd_data *d, char *out, int out_len)
 {
-	int req = out_len / ((int)sizeof(float) * d->channels);
-	if (req <= 0) return 0;
-	if (req > DSD_READ_BYTES) req = DSD_READ_BYTES;
+	int samples_wanted = out_len / ((int)sizeof(float) * d->channels);
+	if (samples_wanted <= 0) return 0;
+	if (samples_wanted > DSD_READ_BYTES) samples_wanted = DSD_READ_BYTES;
 
 	uint64_t bytes_per_ch_left =
 		(d->total_dsd_bytes - d->bytes_decoded) / d->channels;
 	if (bytes_per_ch_left == 0) return 0;
-	if ((uint64_t)req > bytes_per_ch_left) req = (int)bytes_per_ch_left;
+	if ((uint64_t)samples_wanted > bytes_per_ch_left)
+		samples_wanted = (int)bytes_per_ch_left;
+	if (samples_wanted <= 0) return 0;
 
 	static uint8_t raw[DSD_MAX_CHANNELS][DSD_READ_BYTES];
-	int got = dsd_read(d, raw, req);
+	int got = dsd_read(d, raw, samples_wanted);
 	if (got <= 0) return 0;
+
+	/* density LUT: byte value → pulse density in [-1.0, +1.0]
+	 * density = (popcount(byte) * 2 - 8) / 8.0 */
+	static float density_lut[256];
+	static int   lut_ready = 0;
+	if (!lut_ready) {
+		for (int b = 0; b < 256; b++)
+			density_lut[b] = (__builtin_popcount(b) * 2 - 8) / 8.0f;
+		lut_ready = 1;
+	}
 
 	float *fout = (float *)out;
 	int samples_out = 0;
 
 	for (int i = 0; i < got; i++) {
+		/* Push one density value per channel into the FIR delay line */
 		for (int ch = 0; ch < d->channels; ch++) {
 			uint8_t byte = raw[ch][i];
 			if (d->lsb_first) byte = bit_rev[byte];
+			d->fir_buf[ch][d->fir_pos] = density_lut[byte];
+		}
+		d->fir_pos = (d->fir_pos + 1) % FIR_LEN;
 
-			/* Push 8 DSD bits into circular delay line */
-			for (int bit = 7; bit >= 0; bit--) {
-				float s = ((byte >> bit) & 1) ? +1.0f : -1.0f;
-				d->fir_buf[ch][d->fir_pos % FIR_LEN] = s;
-				d->fir_pos++;
-			}
-
-			/* Convolve */
+		/* Convolve FIR for each channel → one PCM sample */
+		for (int ch = 0; ch < d->channels; ch++) {
 			float acc = 0.0f;
-			int pos = d->fir_pos;
-			for (int k = 0; k < FIR_LEN; k++)
-				acc += dsd_fir[k]
-				       * d->fir_buf[ch][(pos - k - 1 + FIR_LEN * 64) % FIR_LEN];
+			for (int k = 0; k < FIR_LEN; k++) {
+				int idx = ((int)d->fir_pos - 1 - k + FIR_LEN * 4) % FIR_LEN;
+				acc += dsd_fir[k] * d->fir_buf[ch][idx];
+			}
 			if (acc >  1.0f) acc =  1.0f;
 			if (acc < -1.0f) acc = -1.0f;
 			*fout++ = acc;
@@ -570,31 +615,29 @@ static void *dsd_open(const char *file)
 			d->native_fmt = SFMT_DSD_U16 | SFMT_LE;
 			d->native_Bpc = 2;
 		} else if (nf && !strcasecmp(nf, "u16be")) {
-			/* Advertise LE to ALSA (kernel only exposes LE),
-			 * byte-swap the 2-byte words in the decoder */
-			d->native_fmt = SFMT_DSD_U16 | SFMT_LE;
+			d->native_fmt = SFMT_DSD_U16 | SFMT_BE;
 			d->native_Bpc = 2;
-			d->native_swap = 1;
 		} else if (nf && !strcasecmp(nf, "u32le")) {
 			d->native_fmt = SFMT_DSD_U32 | SFMT_LE;
 			d->native_Bpc = 4;
 		} else if (nf && !strcasecmp(nf, "u32be")) {
-			/* Same: advertise LE, swap 4-byte words internally */
-			d->native_fmt = SFMT_DSD_U32 | SFMT_LE;
+			/* DAC natively supports DSD_U32_BE — use it directly,
+			 * no byte-swap needed. */
+			d->native_fmt = SFMT_DSD_U32 | SFMT_BE;
 			d->native_Bpc = 4;
-			d->native_swap = 1;
 		} else {
 			/* default: u8 */
 			d->native_fmt = SFMT_DSD_U8;
 			d->native_Bpc = 1;
 		}
 
-		logit("DSD: native format requested=%s → advertising %s%s to ALSA",
-		      nf ? nf : "u8",
-		      d->native_fmt == SFMT_DSD_U8              ? "DSD_U8"    :
+		logit("DSD: native format=%s Bpc=%d",
+		      d->native_fmt == SFMT_DSD_U8              ? "DSD_U8"     :
 		      d->native_fmt == (SFMT_DSD_U16 | SFMT_LE) ? "DSD_U16_LE" :
-		      d->native_fmt == (SFMT_DSD_U32 | SFMT_LE) ? "DSD_U32_LE" : "?",
-		      d->native_swap ? " (with internal byte-swap)" : "");
+		      d->native_fmt == (SFMT_DSD_U16 | SFMT_BE) ? "DSD_U16_BE" :
+		      d->native_fmt == (SFMT_DSD_U32 | SFMT_LE) ? "DSD_U32_LE" :
+		      d->native_fmt == (SFMT_DSD_U32 | SFMT_BE) ? "DSD_U32_BE" : "?",
+		      d->native_Bpc);
 	}
 
 	/* Output sample-rate */
@@ -609,7 +652,12 @@ static void *dsd_open(const char *file)
 		d->pcm_rate = d->dsd_rate / 16;
 		break;
 	case DSD_MODE_PCM:
-		d->pcm_rate = d->dsd_rate / 8;
+		/* Output one float per DSD byte per channel.
+		 * Rate = dsd_rate / 8, same as MPD's software DSD decoder.
+		 * If the DAC doesn't support this rate, audio_conversion will
+		 * resample to the nearest supported rate. */
+		d->pcm_decimate = 1;
+		d->pcm_rate     = d->dsd_rate / 8;
 		break;
 	}
 
@@ -668,8 +716,9 @@ static int dsd_decode(void *prv, char *buf, int buf_len,
 		return decode_native(d, buf, buf_len);
 
 	case DSD_MODE_DOP:
-		/* 24-bit DoP payload in S32_LE words; standard PCM path. */
-		sp->fmt = SFMT_S32 | SFMT_LE;
+		/* DoP: S32_LE container with DSD+marker. SFMT_DOP protects
+		 * from softmixer/equalizer/conversion. ALSA strips the flag. */
+		sp->fmt = SFMT_DOP | SFMT_S32 | SFMT_LE;
 		return decode_dop(d, buf, buf_len);
 
 	case DSD_MODE_PCM:
@@ -724,6 +773,9 @@ static void dsd_info(const char *file, struct file_tags *tags,
 static int dsd_get_bitrate(void *prv)
 {
 	struct dsd_data *d = (struct dsd_data *)prv;
+	/* Report DSD bit-rate per channel in kbps.
+	 * DSD64:  2822 kbps/ch, DSD128: 5644 kbps/ch, DSD256: 11289 kbps/ch.
+	 * The display caps at 9999, so DSD256 shows as 9999 — acceptable. */
 	return (int)(d->dsd_rate / 1000);
 }
 
@@ -740,16 +792,29 @@ static void dsd_get_error(void *prv, struct decoder_error *error)
 
 static int dsd_our_format_ext(const char *ext)
 {
-	return !strcasecmp(ext, "dsf") || !strcasecmp(ext, "dff");
+	if (!(!strcasecmp(ext, "dsf") || !strcasecmp(ext, "dff")))
+		return 0;
+
+	/* In PCM mode, let ffmpeg handle DSD→PCM conversion — it uses
+	 * the proven dsd2pcm library and correctly handles all DSD rates. */
+	const char *mode = options_get_str("DSDPlaybackMode");
+	if (mode && !strcasecmp(mode, "pcm"))
+		return 0;
+
+	return 1;
 }
 
 static void dsd_get_name(const char *file, char buf[4])
 {
+	/* buf is exactly 4 bytes: max 3 chars + null terminator.
+	 * Show the container format: DSF or DFF. */
 	const char *ext = ext_pos(file);
 	if (ext) {
 		if      (!strcasecmp(ext, "dsf")) strcpy(buf, "DSF");
 		else if (!strcasecmp(ext, "dff")) strcpy(buf, "DFF");
 		else                              strcpy(buf, "DSD");
+	} else {
+		strcpy(buf, "DSD");
 	}
 }
 

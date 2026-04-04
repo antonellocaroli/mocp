@@ -208,6 +208,12 @@ static long sfmt_best_matching (const long formats_with_endian,
 
 	if (formats & req)
 		best = req;
+	/* DoP is PCM-shaped (S32_LE) but must never be resampled or converted.
+	 * SFMT_DOP lives above SFMT_MASK_FORMAT so req doesn't carry it —
+	 * check req_with_endian directly and return the full value unchanged. */
+	else if (req_with_endian & SFMT_DOP) {
+		best = req; /* endianness added below from req_end */
+	}
 	/* Native DSD: match must consider endianness because DSD_U32_LE and
 	 * DSD_U32_BE are distinct ALSA formats.  caps->formats contains both
 	 * the format bits AND the endianness bits for each DSD variant the
@@ -288,13 +294,18 @@ static long sfmt_best_matching (const long formats_with_endian,
 	assert (best != 0);
 
 	/* Endianness assignment:
+	 *  - DoP: restore SFMT_DOP flag and LE endianness from request.
 	 *  - DSD_U8: no endianness bit (single-byte container, meaningless)
 	 *  - DSD_U16/U32: take endianness from the requested format, because
 	 *    each LE/BE variant is a distinct ALSA format enum.  The generic
 	 *    PCM endianness logic must never touch DSD formats.
 	 *  - PCM 8-bit: no endianness
 	 *  - PCM 16/32/float: use driver caps endianness as before */
-	if (best & (SFMT_DSD_U16 | SFMT_DSD_U32)) {
+	if (req_with_endian & SFMT_DOP) {
+		/* Restore the DoP flag and endianness (always LE for DoP). */
+		best |= SFMT_DOP;
+		best |= req_end ? req_end : SFMT_LE;
+	} else if (best & (SFMT_DSD_U16 | SFMT_DSD_U32)) {
 		/* Restore the endianness from the request.  If the plugin
 		 * did not specify one (shouldn't happen) default to LE. */
 		if (req_end)
@@ -797,12 +808,27 @@ int audio_open (struct sound_params *sound_params)
 						req_sound_params.rate,
 						driver_sound_params.rate))) {
 			/* Native DSD must never enter the PCM conversion path.
-			 * If the driver rejected the DSD format, fail cleanly. */
+			 * If the driver doesn't support the DSD format, the
+			 * kernel driver lacks DSD support. Suggest alternatives. */
 			if (req_sound_params.fmt & SFMT_MASK_DSD) {
 				char fmt_name2[SFMT_STR_MAX];
-				error ("DSD native playback: driver does not support %s",
+				error ("Native DSD not supported by this audio device "
+				       "(%s). Try DSDPlaybackMode = dop (for DoP-capable "
+				       "DACs) or DSDPlaybackMode = pcm (for any device).",
 				       sfmt_str (req_sound_params.fmt, fmt_name2,
 				                 sizeof (fmt_name2)));
+				hw.close ();
+				reset_sound_params (&req_sound_params);
+				return 0;
+			}
+			/* DoP data must never be touched by the conversion
+			 * pipeline — the marker bytes would be corrupted.
+			 * If the driver doesn't support S32, the DAC likely
+			 * doesn't support DoP at all; suggest PCM mode. */
+			if (req_sound_params.fmt & SFMT_DOP) {
+				error ("DoP playback not supported by this audio device "
+				       "(requires S32_LE). Use DSDPlaybackMode = pcm "
+				       "for software DSD-to-PCM conversion.");
 				hw.close ();
 				reset_sound_params (&req_sound_params);
 				return 0;
@@ -878,6 +904,15 @@ int audio_send_pcm (const char *buf, const size_t size)
 {
 	char *softmixed = NULL;
 	char *equalized = NULL;
+
+	/* DoP samples must reach the DAC bit-perfect — the marker bytes
+	 * (0x05/0xFA) would be destroyed by any DSP processing. */
+	if (driver_sound_params.fmt & SFMT_DOP) {
+		int played = hw.play (buf, size);
+		if (played < 0)
+			error ("Error playing DoP audio");
+		return played > 0 ? played : 0;
+	}
 
 	if (equalizer_is_active ())
 	{

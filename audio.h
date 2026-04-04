@@ -54,6 +54,13 @@ enum sfmt_endianness
 /*@{*/
 #define SFMT_MASK_FORMAT     0x000003ff /*!< sample format (PCM + DSD bits) */
 #define SFMT_MASK_DSD        (SFMT_DSD_U8 | SFMT_DSD_U16 | SFMT_DSD_U32) /*!< all native DSD formats */
+
+/** DSD-over-PCM flag.  Stored above SFMT_MASK_FORMAT so that sfmt_Bps()
+ *  and the switch() statements that operate on (format & SFMT_MASK_FORMAT)
+ *  never see it.  Set together with SFMT_S32|SFMT_LE to signal that the
+ *  32-bit PCM samples carry DoP payload and must not be touched by the
+ *  softmixer, equalizer or sample-rate conversion pipeline. */
+#define SFMT_DOP             0x00010000
 #define SFMT_MASK_ENDIANNESS 0x00003000 /*!< sample endianness */
 /*@}*/
 

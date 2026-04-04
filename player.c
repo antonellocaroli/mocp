@@ -436,6 +436,26 @@ static void buf_free_cb ()
 	update_time ();
 }
 
+/* Build the playing status message, including DSD format info if applicable. */
+static void set_dsd_status_msg (const struct sound_params *sp)
+{
+	char msg[64];
+	if (sp->fmt & SFMT_MASK_DSD) {
+		const char *grade =
+			sp->rate >= 352800 ? "DSD256" :
+			sp->rate >= 176400 ? "DSD128" : "DSD64";
+		snprintf (msg, sizeof(msg), "%s Native", grade);
+	} else if (sp->fmt & SFMT_DOP) {
+		const char *grade =
+			sp->rate >= 352800 ? "DSD256" :
+			sp->rate >= 176400 ? "DSD128" : "DSD64";
+		snprintf (msg, sizeof(msg), "%s DoP", grade);
+	} else {
+		snprintf (msg, sizeof(msg), "Playing...");
+	}
+	status_msg (msg);
+}
+
 /* Decoder loop for already opened and probably running for some time decoder.
  * next_file will be precached at eof. */
 static void decode_loop (const struct decoder *f, void *decoder_data,
@@ -608,6 +628,7 @@ static void decode_loop (const struct decoder *f, void *decoder_data,
 			sound_params_change = false;
 			set_info_channels (sound_params->channels);
 			set_info_rate (sound_params->rate / 1000);
+			set_dsd_status_msg (sound_params);
 			out_buf_wait (out_buf);
 			if (!audio_open(sound_params)) {
 				md5->okay = false;
@@ -731,6 +752,7 @@ static void play_file (const char *file, const struct decoder *f,
 		decoder_data = precache.decoder_data;
 		set_info_channels (sound_params.channels);
 		set_info_rate (sound_params.rate / 1000);
+		set_dsd_status_msg (&sound_params);
 
 		if (!audio_open(&sound_params)) {
 			md5.okay = false;

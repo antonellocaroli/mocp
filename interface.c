@@ -776,6 +776,7 @@ static void update_curr_file ()
 		file_info_reset (&curr_file);
 		iface_set_played_file (NULL);
 		iface_load_lyrics (NULL);
+		iface_set_dsd_mode ("");
 		free (file);
 	}
 	else if (file[0] &&

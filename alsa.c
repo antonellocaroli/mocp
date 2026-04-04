@@ -171,6 +171,12 @@ static inline long mask_to_format (const snd_pcm_format_mask_t *mask)
 static inline snd_pcm_format_t format_to_mask (long format)
 {
 	snd_pcm_format_t result = SND_PCM_FORMAT_UNKNOWN;
+
+	/* DoP uses a standard S32_LE container — strip the SFMT_DOP marker
+	 * before the table lookup so it resolves to SND_PCM_FORMAT_S32. */
+	if (format & SFMT_DOP)
+		format = (format & ~SFMT_DOP) | SFMT_S32 | SFMT_LE;
+
 	long req_fmt = format & SFMT_MASK_FORMAT;
 	long req_end = format & SFMT_MASK_ENDIANNESS;
 
@@ -645,10 +651,21 @@ static int alsa_open (struct sound_params *sound_params)
 	}
 
 	params.rate = sound_params->rate;
-	rc = snd_pcm_hw_params_set_rate_near (handle, hw_params, &params.rate, 0);
-	if (rc < 0) {
-		error_errno ("Can't set sample rate", rc);
-		goto err;
+	/* DoP requires an exact sample rate — if the driver changes it,
+	 * the marker bytes (0x05/0xFA) desync and the DAC plays noise. */
+	if (sound_params->fmt & SFMT_DOP) {
+		rc = snd_pcm_hw_params_set_rate (handle, hw_params, params.rate, 0);
+		if (rc < 0) {
+			error ("DoP: driver does not support exact rate %uHz. "
+			       "Try DSDPlaybackMode=pcm instead.", params.rate);
+			goto err;
+		}
+	} else {
+		rc = snd_pcm_hw_params_set_rate_near (handle, hw_params, &params.rate, 0);
+		if (rc < 0) {
+			error_errno ("Can't set sample rate", rc);
+			goto err;
+		}
 	}
 
 	logit ("Set rate: %uHz", params.rate);

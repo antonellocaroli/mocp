@@ -223,6 +223,7 @@ static struct info_win
 	bool state_repeat;
 	bool state_next;
 	bool state_net;
+	char dsd_mode[8]; /* "DSD64", "DSD128", "DSD256", "DoP", "PCM", "" */
 
 	int bitrate;		/* in kbps */
 	int rate;		/* in kHz */
@@ -2690,6 +2691,7 @@ static void info_win_init (struct info_win *w)
 	w->state_next = false;
 	w->state_play = STATE_STOP;
 	w->state_net = false;
+	w->dsd_mode[0] = 0;
 
 	w->bitrate = -1;
 	w->rate = -1;
@@ -3034,9 +3036,9 @@ static void info_win_draw_bitrate (const struct info_win *w)
 		wattrset (w->win, get_color(CLR_SOUND_PARAMS));
 		wmove (w->win, 2, 29);
 		if (w->bitrate != -1)
-			xwprintw (w->win, "%4d", MIN(w->bitrate, 9999));
+			xwprintw (w->win, "%5d", w->bitrate);
 		else
-			xwaddstr (w->win, "    ");
+			xwaddstr (w->win, "     ");
 	}
 	info_win_update_curs (w);
 }
@@ -3700,6 +3702,16 @@ void iface_set_option_state (const char *name, const bool value)
 	assert (name != NULL);
 
 	info_win_set_option_state (&info_win, name, value);
+	iface_refresh_screen ();
+}
+
+void iface_set_dsd_mode (const char *mode)
+{
+	if (mode && mode[0])
+		strncpy (info_win.dsd_mode, mode, sizeof(info_win.dsd_mode) - 1);
+	else
+		info_win.dsd_mode[0] = 0;
+	info_win_draw_options_state (&info_win);
 	iface_refresh_screen ();
 }
 
