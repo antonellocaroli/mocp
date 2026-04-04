@@ -651,13 +651,17 @@ static int alsa_open (struct sound_params *sound_params)
 	}
 
 	params.rate = sound_params->rate;
-	/* DoP requires an exact sample rate — if the driver changes it,
-	 * the marker bytes (0x05/0xFA) desync and the DAC plays noise. */
-	if (sound_params->fmt & SFMT_DOP) {
+	/* DSD native and DoP both require an exact sample rate.
+	 * For DoP, marker bytes desync if rate changes.
+	 * For native DSD, the kernel DSD_U32_BE format encodes a fixed
+	 * number of DSD bits per frame — any rate change corrupts playback. */
+	if (sound_params->fmt & (SFMT_DOP | SFMT_MASK_DSD)) {
 		rc = snd_pcm_hw_params_set_rate (handle, hw_params, params.rate, 0);
 		if (rc < 0) {
-			error ("DoP: driver does not support exact rate %uHz. "
-			       "Try DSDPlaybackMode=pcm instead.", params.rate);
+			error ("DSD: driver does not support exact rate %uHz "
+			       "(format %s). Try DSDPlaybackMode=dop or pcm.",
+			       params.rate,
+			       (sound_params->fmt & SFMT_DOP) ? "DoP" : "Native");
 			goto err;
 		}
 	} else {

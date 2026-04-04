@@ -1,6 +1,8 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
+#include <stdint.h>
+
 #include <stdlib.h>
 
 #ifdef __cplusplus
@@ -85,6 +87,7 @@ struct sound_params
 	int channels; /*!< Number of channels: 1 or 2 */
 	int rate; /*!< Rate in Hz */
 	long fmt; /*!< Format of the samples (SFMT_* bits) */
+	uint32_t dsd_rate; /*!< Original DSD bit rate in Hz (0 for PCM) */
 };
 
 /** Output driver capabilities.
@@ -226,7 +229,8 @@ struct hw_funcs
 
 /* Are the parameters p1 and p2 equal? */
 #define sound_params_eq(p1, p2) ((p1).fmt == (p2).fmt \
-		&& (p1).channels == (p2).channels && (p1).rate == (p2).rate)
+		&& (p1).channels == (p2).channels && (p1).rate == (p2).rate \
+		&& (p1).dsd_rate == (p2).dsd_rate)
 
 /* Maximum size of a string needed to hold the value returned by sfmt_str(). */
 #define SFMT_STR_MAX	265

@@ -437,19 +437,29 @@ static void buf_free_cb ()
 }
 
 /* Build the playing status message, including DSD format info if applicable. */
+/* Return DSD grade string from the original DSD bit rate.
+ * Works for both 44.1kHz and 48kHz base frequencies. */
+static const char *dsd_grade (uint32_t dsd_rate)
+{
+	uint32_t mult;
+	if (dsd_rate % 44100 == 0)       mult = dsd_rate / 44100;
+	else if (dsd_rate % 48000 == 0)  mult = dsd_rate / 48000;
+	else                             mult = dsd_rate / 44100;
+
+	if      (mult >= 1024) return "DSD1024";
+	else if (mult >= 512)  return "DSD512";
+	else if (mult >= 256)  return "DSD256";
+	else if (mult >= 128)  return "DSD128";
+	else                   return "DSD64";
+}
+
 static void set_dsd_status_msg (const struct sound_params *sp)
 {
 	char msg[64];
-	if (sp->fmt & SFMT_MASK_DSD) {
-		const char *grade =
-			sp->rate >= 352800 ? "DSD256" :
-			sp->rate >= 176400 ? "DSD128" : "DSD64";
-		snprintf (msg, sizeof(msg), "%s Native", grade);
-	} else if (sp->fmt & SFMT_DOP) {
-		const char *grade =
-			sp->rate >= 352800 ? "DSD256" :
-			sp->rate >= 176400 ? "DSD128" : "DSD64";
-		snprintf (msg, sizeof(msg), "%s DoP", grade);
+	if (sp->dsd_rate > 0 && (sp->fmt & SFMT_MASK_DSD)) {
+		snprintf (msg, sizeof(msg), "%s Native", dsd_grade(sp->dsd_rate));
+	} else if (sp->dsd_rate > 0 && (sp->fmt & SFMT_DOP)) {
+		snprintf (msg, sizeof(msg), "%s DoP", dsd_grade(sp->dsd_rate));
 	} else {
 		snprintf (msg, sizeof(msg), "Playing...");
 	}
@@ -721,7 +731,7 @@ static void play_file (const char *file, const struct decoder *f,
 		const char *next_file, struct out_buf *out_buf)
 {
 	void *decoder_data;
-	struct sound_params sound_params = { 0, 0, 0 };
+	struct sound_params sound_params = { 0, 0, 0, 0 };
 	float already_decoded_time;
 	struct md5_data md5;
 
@@ -834,7 +844,7 @@ static void play_file (const char *file, const struct decoder *f,
 static void play_stream (const struct decoder *f, struct out_buf *out_buf)
 {
 	void *decoder_data;
-	struct sound_params sound_params = { 0, 0, 0 };
+	struct sound_params sound_params = { 0, 0, 0, 0 };
 	struct decoder_error err;
 	struct md5_data null_md5;
 

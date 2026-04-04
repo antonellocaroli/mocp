@@ -145,7 +145,7 @@ struct dsd_data {
 	/* FIR state (PCM mode) */
 	float        fir_buf[DSD_MAX_CHANNELS][FIR_LEN];
 	int          fir_pos;
-	int          pcm_decimate; /* decimation ratio: 8 for DSD64, 16 for DSD128, 32 for DSD256 */
+	int          pcm_decimate; /* decimation ratio: dsd_rate/8 for all formats */
 
 	/* DoP state */
 	int          dop_phase;
@@ -706,6 +706,7 @@ static int dsd_decode(void *prv, char *buf, int buf_len,
 
 	sp->channels = d->channels;
 	sp->rate     = d->pcm_rate;
+	sp->dsd_rate = d->dsd_rate;
 
 	switch (d->mode) {
 	case DSD_MODE_NATIVE:
